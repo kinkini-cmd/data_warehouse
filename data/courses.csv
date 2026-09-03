@@ -1,0 +1,13 @@
+CourseID,CourseName,Credits,DepartmentID
+C001,Database Systems,3,D01
+C002,Data Science Fundamentals,4,D02
+C003,Programming Fundamentals,3,D01
+C004,Computer Networks,3,D03
+C005,Machine Learning,4,D02
+C006,Web Application Development,3,D04
+C007,Cyber Security Fundamentals,3,D05
+C008,Data Mining,3,D02
+C009,Software Engineering,3,D04
+C010,Operating Systems,3,D01
+C011,Cloud Computing,3,D03
+C012,Information Security,3,D05

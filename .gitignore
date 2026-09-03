@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+logs/*
+superset_home/*
+!superset_home/.gitkeep
+
+.DS_Store
