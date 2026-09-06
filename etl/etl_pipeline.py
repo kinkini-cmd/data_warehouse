@@ -46,7 +46,8 @@ def truncate_staging(engine):
     with engine.begin() as conn:
         for t in tables:
             conn.execute(text(f"TRUNCATE TABLE {t}"))
-    logger.info("Staging tables truncated.")
+        conn.execute(text("TRUNCATE TABLE fact_enrollments RESTART IDENTITY"))
+    logger.info("Staging and fact tables truncated.")
 
 
 def load_staging_tables(engine):
@@ -107,9 +108,9 @@ def process_dim_courses(engine):
             FROM stg_courses s
             WHERE d.course_id = s."CourseID"
               AND d.is_current = TRUE
-              AND ( d.course_name   <> s."CourseName"
-                 OR d.credits       <> s."Credits"
-                 OR COALESCE(d.department_id, '') <> COALESCE(s."DepartmentID", '') )
+              AND ( COALESCE(d.course_name, '')   <> COALESCE(s."CourseName", '')
+                 OR COALESCE(d.credits::TEXT, '')  <> COALESCE(s."Credits"::TEXT, '')
+                 OR COALESCE(d.department_id, '')  <> COALESCE(s."DepartmentID", '') )
         """))
         # 2. Insert new/changed records as new current versions
         conn.execute(text("""
@@ -123,9 +124,9 @@ def process_dim_courses(engine):
                 SELECT 1 FROM dim_courses d
                 WHERE d.course_id = s."CourseID"
                   AND d.is_current = TRUE
-                  AND d.course_name = s."CourseName"
-                  AND d.credits     = s."Credits"
-                  AND COALESCE(d.department_id, '') = COALESCE(s."DepartmentID", '')
+                  AND COALESCE(d.course_name, '')   = COALESCE(s."CourseName", '')
+                  AND COALESCE(d.credits::TEXT, '')  = COALESCE(s."Credits"::TEXT, '')
+                  AND COALESCE(d.department_id, '')  = COALESCE(s."DepartmentID", '')
             )
         """))
         result = conn.execute(
@@ -146,8 +147,8 @@ def process_dim_instructors(engine):
             FROM stg_instructors s
             WHERE d.instructor_id = s."InstructorID"
               AND d.is_current = TRUE
-              AND ( d.instructor_name <> s."InstructorName"
-                 OR COALESCE(d.department_id, '') <> COALESCE(s."DepartmentID", '') )
+              AND ( COALESCE(d.instructor_name, '')  <> COALESCE(s."InstructorName", '')
+                 OR COALESCE(d.department_id, '')    <> COALESCE(s."DepartmentID", '') )
         """))
         conn.execute(text("""
             INSERT INTO dim_instructors (
@@ -160,8 +161,8 @@ def process_dim_instructors(engine):
                 SELECT 1 FROM dim_instructors d
                 WHERE d.instructor_id = s."InstructorID"
                   AND d.is_current = TRUE
-                  AND d.instructor_name = s."InstructorName"
-                  AND COALESCE(d.department_id, '') = COALESCE(s."DepartmentID", '')
+                  AND COALESCE(d.instructor_name, '') = COALESCE(s."InstructorName", '')
+                  AND COALESCE(d.department_id, '')   = COALESCE(s."DepartmentID", '')
             )
         """))
         result = conn.execute(
@@ -182,10 +183,10 @@ def process_dim_students(engine):
             FROM stg_students s
             WHERE d.student_id = s."StudentID"
               AND d.is_current = TRUE
-              AND ( d.first_name  <> s."FirstName"
-                 OR d.last_name   <> s."LastName"
-                 OR d.gender      <> s."Gender"
-                 OR d.email       <> s."Email"
+              AND ( COALESCE(d.first_name, '')  <> COALESCE(s."FirstName", '')
+                 OR COALESCE(d.last_name, '')   <> COALESCE(s."LastName", '')
+                 OR COALESCE(d.gender, '')      <> COALESCE(s."Gender", '')
+                 OR COALESCE(d.email, '')       <> COALESCE(s."Email", '')
                  OR COALESCE(d.department_id, '') <> COALESCE(s."DepartmentID", '') )
         """))
         conn.execute(text("""
@@ -200,10 +201,10 @@ def process_dim_students(engine):
                 SELECT 1 FROM dim_students d
                 WHERE d.student_id = s."StudentID"
                   AND d.is_current = TRUE
-                  AND d.first_name  = s."FirstName"
-                  AND d.last_name   = s."LastName"
-                  AND d.gender      = s."Gender"
-                  AND d.email       = s."Email"
+                  AND COALESCE(d.first_name, '')  = COALESCE(s."FirstName", '')
+                  AND COALESCE(d.last_name, '')   = COALESCE(s."LastName", '')
+                  AND COALESCE(d.gender, '')      = COALESCE(s."Gender", '')
+                  AND COALESCE(d.email, '')       = COALESCE(s."Email", '')
                   AND COALESCE(d.department_id, '') = COALESCE(s."DepartmentID", '')
             )
         """))
@@ -215,6 +216,39 @@ def process_dim_students(engine):
 
 
 # ------------------------------------------------------------------ #
+#  Date dimension processing
+# ------------------------------------------------------------------ #
+def process_dim_date(engine):
+    """Load dim_date for the calendar year."""
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE dim_date RESTART IDENTITY CASCADE"))
+        conn.execute(text("""
+            INSERT INTO dim_date (
+                date_sk, date, day, month, year, quarter,
+                day_of_week, day_name, month_name, is_weekend,
+                fiscal_year, fiscal_quarter
+            )
+            SELECT
+                TO_CHAR(d, 'YYYYMMDD')::INTEGER        AS date_sk,
+                d                                       AS date,
+                EXTRACT(DAY FROM d)::INTEGER            AS day,
+                EXTRACT(MONTH FROM d)::INTEGER          AS month,
+                EXTRACT(YEAR FROM d)::INTEGER           AS year,
+                EXTRACT(QUARTER FROM d)::INTEGER        AS quarter,
+                EXTRACT(DOW FROM d)::INTEGER            AS day_of_week,
+                TRIM(TO_CHAR(d, 'FMDay'))               AS day_name,
+                TRIM(TO_CHAR(d, 'FMMonth'))             AS month_name,
+                CASE WHEN EXTRACT(DOW FROM d) IN (0, 6) THEN TRUE ELSE FALSE END AS is_weekend,
+                EXTRACT(YEAR FROM d)::INTEGER           AS fiscal_year,
+                EXTRACT(QUARTER FROM d)::INTEGER        AS fiscal_quarter
+            FROM generate_series('2026-01-01'::DATE, '2026-12-31'::DATE, '1 day'::INTERVAL) AS d
+        """))
+        result = conn.execute(text("SELECT COUNT(*) FROM dim_date"))
+        count = result.scalar()
+    logger.info(f"dim_date – {count} rows")
+
+
+# ------------------------------------------------------------------ #
 #  Fact table
 # ------------------------------------------------------------------ #
 def load_fact_enrollments(engine):
@@ -222,7 +256,7 @@ def load_fact_enrollments(engine):
     with engine.begin() as conn:
         conn.execute(text("""
             INSERT INTO fact_enrollments (
-                enrollment_id, student_sk, course_sk, instructor_sk,
+                enrollment_id, student_sk, course_sk, instructor_sk, date_sk,
                 enrollment_date, semester, grade, credits
             )
             SELECT
@@ -230,10 +264,11 @@ def load_fact_enrollments(engine):
                 ds.student_sk,
                 dc.course_sk,
                 di.instructor_sk,
+                dd.date_sk,
                 se."EnrollmentDate",
                 se."Semester",
                 se."Grade",
-                dc.credits
+                sc."Credits"
             FROM stg_enrollments se
             JOIN dim_students ds
               ON ds.student_id = se."StudentID"
@@ -244,6 +279,10 @@ def load_fact_enrollments(engine):
             JOIN dim_instructors di
               ON di.instructor_id = se."InstructorID"
               AND di.is_current = TRUE
+            JOIN dim_date dd
+              ON dd.date = se."EnrollmentDate"
+            JOIN stg_courses sc
+              ON sc."CourseID" = se."CourseID"
         """))
         result = conn.execute(text("SELECT COUNT(*) FROM fact_enrollments"))
         count = result.scalar()
@@ -264,6 +303,7 @@ def main():
     process_dim_courses(engine)
     process_dim_instructors(engine)
     process_dim_students(engine)
+    process_dim_date(engine)
 
     load_fact_enrollments(engine)
 

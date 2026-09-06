@@ -6,10 +6,34 @@
 -- ============================================================
 
 DROP TABLE IF EXISTS fact_enrollments;
+DROP TABLE IF EXISTS dim_date;
 DROP TABLE IF EXISTS dim_students;
 DROP TABLE IF EXISTS dim_instructors;
 DROP TABLE IF EXISTS dim_courses;
 DROP TABLE IF EXISTS dim_departments;
+
+-- ----------------------------------------------------------
+-- dim_date  – Date dimension for time-based analysis
+-- ----------------------------------------------------------
+CREATE TABLE dim_date (
+    date_sk           INTEGER      PRIMARY KEY,
+    date              DATE         NOT NULL,
+    day               INTEGER      NOT NULL,
+    month             INTEGER      NOT NULL,
+    year              INTEGER      NOT NULL,
+    quarter           INTEGER      NOT NULL,
+    day_of_week       INTEGER      NOT NULL,
+    day_name          VARCHAR(10)  NOT NULL,
+    month_name        VARCHAR(10)  NOT NULL,
+    is_weekend        BOOLEAN      NOT NULL,
+    fiscal_year       INTEGER      NOT NULL,
+    fiscal_quarter    INTEGER      NOT NULL
+);
+
+CREATE INDEX idx_dim_date_date ON dim_date(date);
+CREATE INDEX idx_dim_date_year ON dim_date(year);
+CREATE INDEX idx_dim_date_month ON dim_date(month);
+CREATE INDEX idx_dim_date_quarter ON dim_date(quarter);
 
 -- ----------------------------------------------------------
 -- dim_departments  – SCD Type 1 (reference / master data)
@@ -45,7 +69,8 @@ CREATE TABLE dim_courses (
 );
 
 CREATE INDEX idx_dim_courses_id        ON dim_courses(course_id);
-CREATE INDEX idx_dim_courses_current   ON dim_courses(course_id, is_current) WHERE is_current;
+CREATE UNIQUE INDEX idx_dim_courses_current ON dim_courses(course_id) WHERE is_current;
+CREATE INDEX idx_dim_courses_current2  ON dim_courses(course_id, is_current) WHERE is_current;
 
 -- ----------------------------------------------------------
 -- dim_instructors  – SCD Type 2
@@ -65,6 +90,7 @@ CREATE TABLE dim_instructors (
 );
 
 CREATE INDEX idx_dim_instructors_id     ON dim_instructors(instructor_id);
+CREATE UNIQUE INDEX idx_dim_instructors_current ON dim_instructors(instructor_id) WHERE is_current;
 CREATE INDEX idx_dim_instructors_curr   ON dim_instructors(instructor_id, is_current) WHERE is_current;
 
 -- ----------------------------------------------------------
@@ -89,22 +115,24 @@ CREATE TABLE dim_students (
 );
 
 CREATE INDEX idx_dim_students_id     ON dim_students(student_id);
+CREATE UNIQUE INDEX idx_dim_students_current ON dim_students(student_id) WHERE is_current;
 CREATE INDEX idx_dim_students_curr   ON dim_students(student_id, is_current) WHERE is_current;
 
 -- ----------------------------------------------------------
 -- fact_enrollments  – Transactional fact table
 -- ----------------------------------------------------------
 CREATE TABLE fact_enrollments (
-    enrollment_sk      SERIAL PRIMARY KEY,
+    enrollment_sk      SERIAL       PRIMARY KEY,
     enrollment_id      VARCHAR(50)  NOT NULL,
     student_sk         INTEGER      NOT NULL REFERENCES dim_students(student_sk),
     course_sk          INTEGER      NOT NULL REFERENCES dim_courses(course_sk),
     instructor_sk      INTEGER      NOT NULL REFERENCES dim_instructors(instructor_sk),
+    date_sk            INTEGER      NOT NULL REFERENCES dim_date(date_sk),
     enrollment_date    DATE,
     semester           VARCHAR(100),
     grade              VARCHAR(10),
     credits            INTEGER,
-    created_at         TIMESTAMP DEFAULT NOW()
+    created_at         TIMESTAMP    DEFAULT NOW()
 );
 
 CREATE INDEX idx_fact_enrollments_student     ON fact_enrollments(student_sk);

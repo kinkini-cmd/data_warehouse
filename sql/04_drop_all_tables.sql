@@ -3,6 +3,7 @@
 -- ============================================================
 
 DROP TABLE IF EXISTS fact_enrollments;
+DROP TABLE IF EXISTS dim_date;
 DROP TABLE IF EXISTS dim_students;
 DROP TABLE IF EXISTS dim_instructors;
 DROP TABLE IF EXISTS dim_courses;
